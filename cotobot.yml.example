@@ -1,0 +1,8 @@
+token: #tour_token_here#
+webhook:
+ ext: https://google.com/hook1
+ path: /hook1
+ listen: 0.0.0.0:8888
+cot:
+  proto: tcp
+  server: 204.48.30.216:8087
