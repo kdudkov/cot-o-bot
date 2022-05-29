@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -51,6 +52,19 @@ func (app *App) GetUpdatesChannel() tgbotapi.UpdatesChannel {
 				panic(err)
 			}
 		}()
+
+		hookUrl, err := url.Parse(webhook)
+		if err != nil {
+			app.logger.Fatal(err)
+		}
+
+		_, err = app.bot.SetWebhook(tgbotapi.WebhookConfig{
+			URL: hookUrl,
+		})
+
+		if err != nil {
+			app.logger.Fatal(err)
+		}
 
 		return app.bot.ListenForWebhook(viper.GetString("webhook.path"))
 	}
