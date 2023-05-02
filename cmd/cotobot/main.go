@@ -3,16 +3,16 @@ package main
 import (
 	"encoding/xml"
 	"fmt"
+	"github.com/kdudkov/goatak/cotproto"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
-	"github.com/kdudkov/goatak/cotxml"
+	tg "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/kdudkov/goatak/cot"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 )
@@ -23,7 +23,7 @@ var (
 )
 
 type App struct {
-	bot    *tgbotapi.BotAPI
+	bot    *tg.BotAPI
 	logger *zap.SugaredLogger
 }
 
@@ -34,16 +34,23 @@ func NewApp(logger *zap.SugaredLogger) (app *App) {
 	return
 }
 
-func (app *App) GetUpdatesChannel() tgbotapi.UpdatesChannel {
+func (app *App) GetUpdatesChannel() (tg.UpdatesChannel, error) {
 	if webhook := viper.GetString("webhook.ext"); webhook != "" {
 		app.logger.Infof("starting webhook %s", webhook)
 
+		wh, _ := tg.NewWebhook(webhook)
+		if _, err := app.bot.Request(wh); err != nil {
+			return nil, err
+		}
+
 		info, err := app.bot.GetWebhookInfo()
 		if err != nil {
-			app.logger.Fatal(err)
+			return nil, err
 		}
+
 		if info.LastErrorDate != 0 {
-			app.logger.Infof("Telegram callback failed: %s", info.LastErrorMessage)
+			app.logger.Errorf("Telegram callback failed: %s", info.LastErrorMessage)
+			return nil, fmt.Errorf(info.LastErrorMessage)
 		}
 
 		app.logger.Infof("start listener on %s, path %s", viper.GetString("webhook.listen"), viper.GetString("webhook.path"))
@@ -53,31 +60,21 @@ func (app *App) GetUpdatesChannel() tgbotapi.UpdatesChannel {
 			}
 		}()
 
-		hookUrl, err := url.Parse(webhook)
-		if err != nil {
-			app.logger.Fatal(err)
-		}
-
-		_, err = app.bot.SetWebhook(tgbotapi.WebhookConfig{
-			URL: hookUrl,
-		})
-
-		if err != nil {
-			app.logger.Fatal(err)
-		}
-
-		return app.bot.ListenForWebhook(viper.GetString("webhook.path"))
+		return app.bot.ListenForWebhook(viper.GetString("webhook.path")), nil
 	}
 
 	app.logger.Info("start polling")
-	u := tgbotapi.NewUpdate(0)
+	app.removeWebhook()
+	u := tg.NewUpdate(0)
 	u.Timeout = 60
 
-	ch, err := app.bot.GetUpdatesChan(u)
-	if err != nil {
-		panic("can't add webhook")
+	return app.bot.GetUpdatesChan(u), nil
+}
+
+func (app *App) removeWebhook() {
+	if _, err := app.bot.Request(tg.WebhookConfig{URL: nil}); err != nil {
+		app.logger.Errorf("remove webhook error: %v", err)
 	}
-	return ch
 }
 
 func (app *App) quit() {
@@ -87,7 +84,7 @@ func (app *App) quit() {
 func (app *App) Run() {
 	var err error
 
-	app.bot, err = tgbotapi.NewBotAPI(viper.GetString("token"))
+	app.bot, err = tg.NewBotAPI(viper.GetString("token"))
 
 	if err != nil {
 		panic("can't start bot " + err.Error())
@@ -97,7 +94,12 @@ func (app *App) Run() {
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
 
-	updates := app.GetUpdatesChannel()
+	updates, err := app.GetUpdatesChannel()
+
+	if err != nil {
+		app.logger.Error(err.Error())
+		return
+	}
 
 	for {
 		select {
@@ -111,8 +113,8 @@ func (app *App) Run() {
 	}
 }
 
-func (app *App) Process(update tgbotapi.Update) {
-	var message *tgbotapi.Message
+func (app *App) Process(update tg.Update) {
+	var message *tg.Message
 
 	if update.EditedMessage != nil {
 		message = update.EditedMessage
@@ -158,11 +160,11 @@ func (app *App) Process(update tgbotapi.Update) {
 
 	logger.Infof("message: %s", message.Text)
 
-	var msg tgbotapi.Chattable
+	var msg tg.Chattable
 
 	switch message.Text {
 	case "/start":
-		msg = tgbotapi.NewMessage(message.Chat.ID, "Ok, now you can share position with me and I will send it to ATAK server as a COT event")
+		msg = tg.NewMessage(message.Chat.ID, "Ok, now you can share position with me and I will send it to ATAK server as a COT event")
 	}
 	//msg.ReplyToMessageID = update.Message.MessageID
 
@@ -173,19 +175,19 @@ func (app *App) Process(update tgbotapi.Update) {
 	}
 }
 
-func makeEvent(id, name string, lat, lon float64) *cotxml.Event {
-	evt := cotxml.BasicMsg(viper.GetString("cot.type"), id, viper.GetDuration("cot.stale"))
-	evt.How = "a-g"
-	evt.Detail = cotxml.Detail{
-		Contact: &cotxml.Contact{Callsign: name},
+func makeEvent(id, name string, lat, lon float64) *cot.Event {
+	evt := cot.BasicMsg(viper.GetString("cot.type"), id, viper.GetDuration("cot.stale"))
+	evt.CotEvent.How = "a-g"
+	evt.CotEvent.Detail = &cotproto.Detail{
+		Contact: &cotproto.Contact{Callsign: name},
 	}
-	evt.Point.Lon = lon
-	evt.Point.Lat = lat
+	evt.CotEvent.Lon = lon
+	evt.CotEvent.Lat = lat
 
-	return evt
+	return cot.ProtoToEvent(evt)
 }
 
-func getLocation(update tgbotapi.Update) *tgbotapi.Location {
+func getLocation(update tg.Update) *tg.Location {
 	if update.EditedMessage != nil {
 		return update.EditedMessage.Location
 	}
@@ -195,7 +197,7 @@ func getLocation(update tgbotapi.Update) *tgbotapi.Location {
 	return nil
 }
 
-func (app *App) sendCotMessage(evt *cotxml.Event) {
+func (app *App) sendCotMessage(evt *cot.Event) {
 	if viper.GetString("cot.server") == "" {
 		return
 	}
@@ -212,11 +214,11 @@ func (app *App) sendCotMessage(evt *cotxml.Event) {
 		return
 	}
 
-	conn.SetWriteDeadline(time.Now().Add(time.Second * 10))
+	_ = conn.SetWriteDeadline(time.Now().Add(time.Second * 10))
 	if _, err := conn.Write(msg); err != nil {
 		app.logger.Errorf("write error: %v", err)
 	}
-	conn.Close()
+	_ = conn.Close()
 }
 
 func main() {
