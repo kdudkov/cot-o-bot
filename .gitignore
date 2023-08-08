@@ -1,5 +1,7 @@
 bin/
 pkg/
 .idea/
+.vscode
 *.swp
 cotobot.yml
+users.yml

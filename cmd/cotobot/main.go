@@ -3,13 +3,15 @@ package main
 import (
 	"encoding/xml"
 	"fmt"
-	"github.com/kdudkov/goatak/cotproto"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/kdudkov/goatak/cotproto"
 
 	tg "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/kdudkov/goatak/cot"
@@ -22,15 +24,47 @@ var (
 	gitBranch   string
 )
 
+var (
+	colors = []string{
+		"White",
+		"Yellow",
+		"Orange",
+		"Magenta",
+		"Red",
+		"Maroon",
+		"Purple",
+		"Dark Blue",
+		"Blue",
+		"Cyan",
+		"Teal",
+		"Green",
+		"Dark Green",
+		"Brown",
+	}
+)
+
+type Cb func(cq *tg.CallbackQuery, user *UserInfo, data string) (tg.Chattable, error)
+
+type Command struct {
+	key  string
+	desc string
+	cb   func(update tg.Update, user *UserInfo) (tg.Chattable, error)
+}
+
 type App struct {
-	bot    *tg.BotAPI
-	logger *zap.SugaredLogger
+	bot       *tg.BotAPI
+	logger    *zap.SugaredLogger
+	users     *UserManager
+	commands  map[string]*Command
+	callbacks map[string]Cb
 }
 
 func NewApp(logger *zap.SugaredLogger) (app *App) {
-	app = &App{
-		logger: logger,
-	}
+	app = new(App)
+	app.commands = make(map[string]*Command)
+	app.logger = logger
+	app.users = NewUserManager(logger, "users.yml")
+	app.callbacks = map[string]Cb{"team": app.callbackTeam}
 	return
 }
 
@@ -79,6 +113,40 @@ func (app *App) removeWebhook() {
 
 func (app *App) quit() {
 	app.bot.StopReceivingUpdates()
+	app.users.Stop()
+}
+
+func (app *App) initCommands() error {
+	commands := []*Command{
+		{
+			key:  "start",
+			desc: "Запустить бота",
+			cb:   app.start,
+		},
+		{
+			key:  "callsign",
+			desc: "Установить позывной",
+			cb:   app.callsign,
+		},
+		{
+			key:  "team",
+			desc: "Указать команду",
+			cb:   app.team,
+		},
+	}
+
+	tgCommands := make([]tg.BotCommand, 0, len(commands))
+	for _, cmd := range commands {
+		app.commands[cmd.key] = cmd
+		tgCommands = append(tgCommands, tg.BotCommand{
+			Command:     "/" + cmd.key,
+			Description: cmd.desc,
+		})
+	}
+
+	config := tg.NewSetMyCommands(tgCommands...)
+	_, err := app.bot.Request(config)
+	return err
 }
 
 func (app *App) Run() {
@@ -92,14 +160,18 @@ func (app *App) Run() {
 	app.logger.Infof("registering %s", app.bot.Self.String())
 
 	sigc := make(chan os.Signal, 1)
-	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
+
+	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
 
 	updates, err := app.GetUpdatesChannel()
+	app.initCommands()
 
 	if err != nil {
 		app.logger.Error(err.Error())
 		return
 	}
+
+	app.users.Start()
 
 	for {
 		select {
@@ -114,6 +186,29 @@ func (app *App) Run() {
 }
 
 func (app *App) Process(update tg.Update) {
+	if cq := update.CallbackQuery; cq != nil {
+		user := app.users.Get(fmt.Sprintf("%d", cq.From.ID), fmt.Sprintf("tg-%s", cq.From.UserName))
+		txt := cq.Data
+		app.logger.Infof("callback with data %s", txt)
+		tokens := strings.SplitN(txt, "_", 2)
+
+		if len(tokens) != 2 {
+			app.logger.Warnf("invalid callback data: %s", txt)
+			return
+		}
+
+		if cb, ok := app.callbacks[tokens[0]]; ok {
+			msg, err := cb(cq, user, tokens[1])
+			if err != nil {
+				app.logger.Errorf("callback error: %s", err.Error())
+				return
+			}
+			app.sendMsg(msg)
+		}
+
+		return
+	}
+
 	var message *tg.Message
 
 	if update.EditedMessage != nil {
@@ -123,78 +218,86 @@ func (app *App) Process(update tg.Update) {
 	}
 
 	if message == nil {
-		app.logger.Warnf("no message: %v", update)
+		app.logger.Warnf("no message")
 		return
 	}
 
-	if message.From == nil {
-		app.logger.Warnf("message without from: %v", update)
-		return
-	}
+	user := app.users.Get(fmt.Sprintf("%d", message.From.ID), fmt.Sprintf("tg-%s", message.From.UserName))
+	logger := app.logger.With("id", message.From.ID, "name", message.From.UserName)
 
-	logger := app.logger.With("from", message.From.UserName, "id", message.From.ID)
-
-	// location
-	if loc := getLocation(update); loc != nil {
-		logger.Infof("location: %f %f", loc.Latitude, loc.Longitude)
+	var answer tg.Chattable
+	switch {
+	case message.IsCommand():
+		command := message.Command()
+		if cmd, ok := app.commands[command]; ok {
+			var err error
+			answer, err = cmd.cb(update, user)
+			if err != nil {
+				logger.Errorf("error in command %s: %s", message.Text, err.Error())
+				return
+			}
+		}
+	case message.Location != nil:
+		loc := message.Location
+		logger.Infof("location: %f %f %f", loc.Latitude, loc.Longitude, loc.HorizontalAccuracy)
 		if viper.GetString("cot.server") != "" {
 			evt := makeEvent(
-				fmt.Sprintf("tg-%d", message.From.ID),
-				fmt.Sprintf("tg-%s", message.From.UserName),
+				user,
 				loc.Latitude,
-				loc.Longitude)
+				loc.Longitude,
+				loc.HorizontalAccuracy,
+				float64(loc.Heading))
+
 			app.sendCotMessage(evt)
-			return
 		}
+	default:
+		logger.Infof("message: %s", message.Text)
 	}
 
-	if message.Text == "" {
-		logger.Infof("empty message")
-		return
-	}
-
-	if update.Message == nil {
-		// edited message
-		return
-	}
-
-	logger.Infof("message: %s", message.Text)
-
-	var msg tg.Chattable
-
-	switch message.Text {
-	case "/start":
-		msg = tg.NewMessage(message.Chat.ID, "Ok, now you can share position with me and I will send it to ATAK server as a COT event")
-	}
-	//msg.ReplyToMessageID = update.Message.MessageID
-
-	if msg != nil {
-		if _, err := app.bot.Send(msg); err != nil {
-			logger.Errorf("can't send message: %s", err.Error())
-		}
-	}
+	app.sendMsg(answer)
 }
 
-func makeEvent(id, name string, lat, lon float64) *cot.Event {
-	evt := cot.BasicMsg(viper.GetString("cot.type"), id, viper.GetDuration("cot.stale"))
-	evt.CotEvent.How = "a-g"
-	evt.CotEvent.Detail = &cotproto.Detail{
-		Contact: &cotproto.Contact{Callsign: name},
+func (app *App) sendMsg(msg tg.Chattable) error {
+	if msg == nil {
+		return nil
 	}
+
+	if _, err := app.bot.Send(msg); err != nil {
+		app.logger.Errorf("can't send message: %s", err.Error())
+		return err
+	}
+
+	return nil
+}
+
+func (app *App) request(msg tg.Chattable) error {
+	if msg == nil {
+		return nil
+	}
+
+	if _, err := app.bot.Request(msg); err != nil {
+		app.logger.Errorf("can't send request: %s", err.Error())
+		return err
+	}
+
+	return nil
+}
+
+func makeEvent(user *UserInfo, lat, lon, acc, heading float64) *cot.Event {
+	evt := cot.BasicMsg(viper.GetString("cot.type"), "tg-"+user.Id, viper.GetDuration("cot.stale"))
+	evt.CotEvent.How = "a-g"
 	evt.CotEvent.Lon = lon
 	evt.CotEvent.Lat = lat
+	evt.CotEvent.Ce = acc
+
+	evt.CotEvent.Detail = &cotproto.Detail{
+		Contact:           &cotproto.Contact{Callsign: user.Callsign},
+		PrecisionLocation: &cotproto.PrecisionLocation{Geopointsrc: "GPS"},
+		Track:             &cotproto.Track{Course: heading},
+		Group:             &cotproto.Group{Name: user.Team, Role: user.Role},
+	}
 
 	return cot.ProtoToEvent(evt)
-}
-
-func getLocation(update tg.Update) *tg.Location {
-	if update.EditedMessage != nil {
-		return update.EditedMessage.Location
-	}
-	if update.Message != nil {
-		return update.Message.Location
-	}
-	return nil
 }
 
 func (app *App) sendCotMessage(evt *cot.Event) {
@@ -226,11 +329,11 @@ func main() {
 	viper.AddConfigPath(".")
 
 	viper.SetDefault("cot.proto", "tcp")
-	viper.SetDefault("cot.type", "a-n-G")
+	viper.SetDefault("cot.type", "a-f-G")
 	viper.SetDefault("cot.stale", time.Minute*10)
 
 	if err := viper.ReadInConfig(); err != nil {
-		panic(fmt.Errorf("Fatal error config file: %s \n", err))
+		panic(fmt.Errorf("fatal error config file: %s", err))
 	}
 
 	config := zap.NewProductionConfig()
