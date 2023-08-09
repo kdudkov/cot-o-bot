@@ -157,6 +157,7 @@ func (app *App) Run() {
 	if err != nil {
 		panic("can't start bot " + err.Error())
 	}
+
 	app.logger.Infof("registering %s", app.bot.Self.String())
 
 	sigc := make(chan os.Signal, 1)
@@ -164,7 +165,12 @@ func (app *App) Run() {
 	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
 
 	updates, err := app.GetUpdatesChannel()
-	app.initCommands()
+	if err != nil {
+		app.logger.Error(err.Error())
+		return
+	}
+
+	err = app.initCommands()
 
 	if err != nil {
 		app.logger.Error(err.Error())
