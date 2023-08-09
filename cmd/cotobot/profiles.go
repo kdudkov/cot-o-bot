@@ -14,6 +14,7 @@ type UserInfo struct {
 	Callsign string `yaml:"callsign"`
 	Team     string `yaml:"team"`
 	Role     string `yaml:"role"`
+	Typ      string `yaml:"type"`
 	Scope    string `yaml:"scope"`
 }
 
@@ -63,6 +64,7 @@ func (um *UserManager) Get(id, name string) *UserInfo {
 		Role:     "Team Member",
 		Team:     "White",
 		Scope:    "test",
+		Typ:      "a-f-G",
 	}
 	um.AddUser(u)
 	return u

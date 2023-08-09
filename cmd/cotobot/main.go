@@ -284,11 +284,12 @@ func (app *App) request(msg tg.Chattable) error {
 }
 
 func makeEvent(user *UserInfo, lat, lon, acc, heading float64) *cot.Event {
-	evt := cot.BasicMsg(viper.GetString("cot.type"), "tg-"+user.Id, viper.GetDuration("cot.stale"))
+	evt := cot.BasicMsg(user.Typ, "tg-"+user.Id, viper.GetDuration("cot.stale"))
 	evt.CotEvent.How = "a-g"
 	evt.CotEvent.Lon = lon
 	evt.CotEvent.Lat = lat
 	evt.CotEvent.Ce = acc
+	evt.CotEvent.Access = user.Scope
 
 	evt.CotEvent.Detail = &cotproto.Detail{
 		Contact:           &cotproto.Contact{Callsign: user.Callsign},
@@ -316,12 +317,12 @@ func (app *App) sendCotMessage(evt *cot.Event) {
 		app.logger.Errorf("connection error: %v", err)
 		return
 	}
+	defer conn.Close()
 
 	_ = conn.SetWriteDeadline(time.Now().Add(time.Second * 10))
 	if _, err := conn.Write(msg); err != nil {
 		app.logger.Errorf("write error: %v", err)
 	}
-	_ = conn.Close()
 }
 
 func main() {
@@ -329,7 +330,6 @@ func main() {
 	viper.AddConfigPath(".")
 
 	viper.SetDefault("cot.proto", "tcp")
-	viper.SetDefault("cot.type", "a-f-G")
 	viper.SetDefault("cot.stale", time.Minute*10)
 
 	if err := viper.ReadInConfig(); err != nil {
