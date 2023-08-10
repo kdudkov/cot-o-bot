@@ -35,6 +35,7 @@ func (u *UserInfo) Copy() *UserInfo {
 		Callsign: u.Callsign,
 		Team:     u.Team,
 		Role:     u.Role,
+		Typ:      u.Typ,
 		Scope:    u.Scope,
 	}
 }

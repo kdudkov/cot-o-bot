@@ -70,6 +70,13 @@ func NewApp(logger *zap.SugaredLogger) (app *App) {
 
 func (app *App) GetUpdatesChannel() (tg.UpdatesChannel, error) {
 	if webhook := viper.GetString("webhook.ext"); webhook != "" {
+		app.logger.Infof("start listener on %s, path %s", viper.GetString("webhook.listen"), viper.GetString("webhook.path"))
+		go func() {
+			if err := http.ListenAndServe(viper.GetString("webhook.listen"), nil); err != nil {
+				panic(err)
+			}
+		}()
+
 		app.logger.Infof("starting webhook %s", webhook)
 
 		wh, _ := tg.NewWebhook(webhook)
@@ -82,17 +89,12 @@ func (app *App) GetUpdatesChannel() (tg.UpdatesChannel, error) {
 			return nil, err
 		}
 
-		if info.LastErrorDate != 0 {
-			app.logger.Errorf("Telegram callback failed: %s", info.LastErrorMessage)
-			return nil, fmt.Errorf(info.LastErrorMessage)
-		}
+		app.logger.Infof("%s %s", info.LastErrorDate, info.LastErrorMessage)
 
-		app.logger.Infof("start listener on %s, path %s", viper.GetString("webhook.listen"), viper.GetString("webhook.path"))
-		go func() {
-			if err := http.ListenAndServe(viper.GetString("webhook.listen"), nil); err != nil {
-				panic(err)
-			}
-		}()
+		//if info.LastErrorDate != 0 {
+		//	app.logger.Errorf("Telegram callback failed: %s", info.LastErrorMessage)
+		//	return nil, fmt.Errorf(info.LastErrorMessage)
+		//}
 
 		return app.bot.ListenForWebhook(viper.GetString("webhook.path")), nil
 	}
