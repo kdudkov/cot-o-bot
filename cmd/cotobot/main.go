@@ -41,6 +41,8 @@ var (
 		"Dark Green",
 		"Brown",
 	}
+
+	roles = []string{"Team Member", "HQ", "Team Lead", "K9", "Forward Observer", "Sniper", "Medic", "RTO"}
 )
 
 type Cb func(cq *tg.CallbackQuery, user *UserInfo, data string) (tg.Chattable, error)
@@ -64,7 +66,10 @@ func NewApp(logger *zap.SugaredLogger) (app *App) {
 	app.commands = make(map[string]*Command)
 	app.logger = logger
 	app.users = NewUserManager(logger, "users.yml")
-	app.callbacks = map[string]Cb{"team": app.callbackTeam}
+	app.callbacks = map[string]Cb{
+		"team": app.callbackTeam,
+		"role": app.callbackRole,
+	}
 	return
 }
 
@@ -134,6 +139,11 @@ func (app *App) initCommands() error {
 			key:  "team",
 			desc: "Указать команду",
 			cb:   app.team,
+		},
+		{
+			key:  "role",
+			desc: "Указать роль",
+			cb:   app.role,
 		},
 	}
 

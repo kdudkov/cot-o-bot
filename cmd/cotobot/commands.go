@@ -52,6 +52,27 @@ func (app *App) team(update tg.Update, user *UserInfo) (tg.Chattable, error) {
 	return msg, nil
 }
 
+func (app *App) role(update tg.Update, user *UserInfo) (tg.Chattable, error) {
+	msg := tg.NewMessage(update.SentFrom().ID, "выберите роль")
+
+	var keyboard [][]tg.InlineKeyboardButton
+	row := make([]tg.InlineKeyboardButton, 0)
+	for i, c := range roles {
+		row = append(row, tg.NewInlineKeyboardButtonData(c, "role_"+c))
+		if (i+1)%3 == 0 {
+			keyboard = append(keyboard, row)
+			row = make([]tg.InlineKeyboardButton, 0)
+		}
+	}
+	keyboard = append(keyboard, row)
+
+	msg.ReplyMarkup = tg.InlineKeyboardMarkup{
+		InlineKeyboard: keyboard,
+	}
+
+	return msg, nil
+}
+
 func (app *App) callbackTeam(cq *tg.CallbackQuery, user *UserInfo, data string) (tg.Chattable, error) {
 	user.Team = data
 	app.users.AddUser(user)
@@ -59,7 +80,20 @@ func (app *App) callbackTeam(cq *tg.CallbackQuery, user *UserInfo, data string) 
 	msg1 := tg.NewCallback(cq.ID, "")
 	app.request(msg1)
 
-	msg := tg.NewMessage(cq.From.ID, fmt.Sprintf("ваша команда теперь %s, позывной %s", user.Team, user.Callsign))
+	msg := tg.NewMessage(cq.From.ID, fmt.Sprintf("теперь вы %s %s, позывной %s", user.Team, user.Role, user.Callsign))
+	msg.ReplyMarkup = tg.NewRemoveKeyboard(false)
+
+	return msg, nil
+}
+
+func (app *App) callbackRole(cq *tg.CallbackQuery, user *UserInfo, data string) (tg.Chattable, error) {
+	user.Role = data
+	app.users.AddUser(user)
+
+	msg1 := tg.NewCallback(cq.ID, "")
+	app.request(msg1)
+
+	msg := tg.NewMessage(cq.From.ID, fmt.Sprintf("теперь вы %s %s, позывной %s", user.Team, user.Role, user.Callsign))
 	msg.ReplyMarkup = tg.NewRemoveKeyboard(false)
 
 	return msg, nil
