@@ -7,12 +7,12 @@ import (
 )
 
 func (app *App) start(update tg.Update, user *UserInfo) (tg.Chattable, error) {
-	name := update.Message.From.UserName
-	if name == "" {
-		name = update.Message.From.FirstName
-	}
+	name := getName(update.Message.From)
 
-	msg := tg.NewMessage(update.SentFrom().ID, fmt.Sprintf("Теперь, %s, ты можешь расшарить своё местоположение и оно отобразится на сервере ATAK", name))
+	text := fmt.Sprintf("Теперь, %s, ты можешь расшарить своё местоположение и оно отобразится на сервере takserver.ru", name)
+	text += "\nсмена позывного - /callsign\nсмена цвета команды - /team\nсмена роли - /role"
+
+	msg := tg.NewMessage(update.SentFrom().ID, text)
 	return msg, nil
 }
 
