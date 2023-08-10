@@ -205,7 +205,7 @@ func (app *App) Run() {
 
 func (app *App) Process(update tg.Update) {
 	if cq := update.CallbackQuery; cq != nil {
-		user := app.users.Get(fmt.Sprintf("%d", cq.From.ID), fmt.Sprintf("tg-%s", cq.From.UserName))
+		user := app.users.Get(fmt.Sprintf("%d", cq.From.ID), fmt.Sprintf("tg-%s", getName(cq.From)))
 		txt := cq.Data
 		app.logger.Infof("callback with data %s", txt)
 		tokens := strings.SplitN(txt, "_", 2)
@@ -240,7 +240,7 @@ func (app *App) Process(update tg.Update) {
 		return
 	}
 
-	user := app.users.Get(fmt.Sprintf("%d", message.From.ID), fmt.Sprintf("tg-%s", message.From.UserName))
+	user := app.users.Get(fmt.Sprintf("%d", message.From.ID), fmt.Sprintf("tg-%s", getName(message.From)))
 	logger := app.logger.With("id", message.From.ID, "name", message.From.UserName)
 
 	var answer tg.Chattable
@@ -340,6 +340,17 @@ func (app *App) sendCotMessage(evt *cot.Event) {
 	_ = conn.SetWriteDeadline(time.Now().Add(time.Second * 10))
 	if _, err := conn.Write(msg); err != nil {
 		app.logger.Errorf("write error: %v", err)
+	}
+}
+
+func getName(u *tg.User) string {
+	switch {
+	case u.UserName != "":
+		return u.UserName
+	case u.LastName != "" || u.FirstName != "":
+		return strings.Trim(u.FirstName+" "+u.LastName, " \t\n\r")
+	default:
+		return fmt.Sprintf("%d", u.ID)
 	}
 }
 
