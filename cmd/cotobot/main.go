@@ -1,8 +1,8 @@
 package main
 
 import (
-	"encoding/xml"
 	"fmt"
+	"google.golang.org/protobuf/proto"
 	"net"
 	"net/http"
 	"os"
@@ -18,6 +18,8 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 )
+
+const magicByte = 0xbf
 
 var (
 	gitRevision string
@@ -259,14 +261,13 @@ func (app *App) Process(update tg.Update) {
 		loc := message.Location
 		logger.Infof("location: %f %f %f", loc.Latitude, loc.Longitude, loc.HorizontalAccuracy)
 		if viper.GetString("cot.server") != "" {
-			evt := makeEvent(
+			app.sendCotMessage(makeCot(
 				user,
 				loc.Latitude,
 				loc.Longitude,
 				loc.HorizontalAccuracy,
-				float64(loc.Heading))
-
-			app.sendCotMessage(evt)
+				float64(loc.Heading)),
+			)
 		}
 	default:
 		logger.Infof("message: %s", message.Text)
@@ -301,7 +302,7 @@ func (app *App) request(msg tg.Chattable) error {
 	return nil
 }
 
-func makeEvent(user *UserInfo, lat, lon, acc, heading float64) *cot.Event {
+func makeCot(user *UserInfo, lat, lon, acc, heading float64) *cotproto.TakMessage {
 	evt := cot.BasicMsg(user.Typ, "tg-"+user.Id, viper.GetDuration("cot.stale"))
 	evt.CotEvent.How = "a-g"
 	evt.CotEvent.Lon = lon
@@ -316,19 +317,25 @@ func makeEvent(user *UserInfo, lat, lon, acc, heading float64) *cot.Event {
 		Group:             &cotproto.Group{Name: user.Team, Role: user.Role},
 	}
 
-	return cot.ProtoToEvent(evt)
+	return evt
 }
 
-func (app *App) sendCotMessage(evt *cot.Event) {
+func (app *App) sendCotMessage(msg *cotproto.TakMessage) {
 	if viper.GetString("cot.server") == "" {
 		return
 	}
 
-	msg, err := xml.Marshal(evt)
+	data, err := proto.Marshal(msg)
 	if err != nil {
 		app.logger.Errorf("marshal error: %v", err)
 		return
 	}
+
+	fulldata := make([]byte, len(data)+3)
+	copy(fulldata[3:], data)
+	fulldata[0] = magicByte
+	fulldata[1] = 1
+	fulldata[2] = magicByte
 
 	conn, err := net.Dial(viper.GetString("cot.proto"), viper.GetString("cot.server"))
 	if err != nil {
@@ -338,7 +345,7 @@ func (app *App) sendCotMessage(evt *cot.Event) {
 	defer conn.Close()
 
 	_ = conn.SetWriteDeadline(time.Now().Add(time.Second * 10))
-	if _, err := conn.Write(msg); err != nil {
+	if _, err := conn.Write(fulldata); err != nil {
 		app.logger.Errorf("write error: %v", err)
 	}
 }

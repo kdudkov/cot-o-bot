@@ -1,13 +1,14 @@
 module cotobot
 
-go 1.19
+go 1.20
 
 require (
 	github.com/fsnotify/fsnotify v1.6.0
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
-	github.com/kdudkov/goatak v0.10.0
+	github.com/kdudkov/goatak v0.11.0
 	github.com/spf13/viper v1.16.0
 	go.uber.org/zap v1.25.0
+	google.golang.org/protobuf v1.30.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -25,6 +26,5 @@ require (
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/sys v0.8.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
-	google.golang.org/protobuf v1.30.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 )
