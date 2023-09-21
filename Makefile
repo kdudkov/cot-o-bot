@@ -10,7 +10,8 @@ LDFLAGS=-ldflags "-s -X main.gitRevision=$(GIT_REVISION) -X main.gitBranch=$(GIT
 
 .PHONY: clean
 clean:
-	rm -rf bin/* || true
+	[ -d dist ] || mkdir dist
+	rm -rf dist/* || true
 
 .PHONY: dep
 dep:
@@ -20,16 +21,18 @@ dep:
 checkdep:
 	go list -u -f '{{if (and (not (or .Main .Indirect)) .Update)}}{{.Path}}: {{.Version}} -> {{.Update.Version}}{{end}}' -m all 2> /dev/null
 
+.PHONE: update
+update:
+	rm go.sum; go get -t -u ./...
+
 .PHONY: test
 test:
 	go test -v ./...
 
 .PHONY: build
 build: clean dep
-	[ -d bin ] || mkdir bin
-	go build $(LDFLAGS) -o bin/ ./cmd/...
+	go build $(LDFLAGS) -o dist/ ./cmd/...
 
 .PHONY: gox
 gox: clean dep
-	[ -d bin ] || mkdir bin
-	GOARM=5 gox --osarch="linux/amd64 darwin/arm64" -output "bin/{{.OS}}_{{.Arch}}/{{.Dir}}" $(LDFLAGS) ./cmd/...
+	GOARM=5 gox --osarch="linux/amd64 darwin/arm64" -output "dist/{{.OS}}_{{.Arch}}/{{.Dir}}" $(LDFLAGS) ./cmd/...
