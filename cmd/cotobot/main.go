@@ -11,10 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kdudkov/goatak/cotproto"
-
 	tg "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/kdudkov/goatak/cot"
+	"github.com/kdudkov/goatak/pkg/cot"
+	"github.com/kdudkov/goatak/pkg/cotproto"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 )
