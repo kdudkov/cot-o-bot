@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"google.golang.org/protobuf/proto"
 	"net"
@@ -301,7 +303,7 @@ func (app *App) request(msg tg.Chattable) error {
 	return nil
 }
 
-func makeCot(user *UserInfo, lat, lon, acc, heading float64) *cotproto.TakMessage {
+func makeCot(user *UserInfo, lat, lon, acc, heading float64) *cot.CotMessage {
 	evt := cot.BasicMsg(user.Typ, "tg-"+user.Id, viper.GetDuration("cot.stale"))
 	evt.CotEvent.How = "a-g"
 	evt.CotEvent.Lon = lon
@@ -316,15 +318,25 @@ func makeCot(user *UserInfo, lat, lon, acc, heading float64) *cotproto.TakMessag
 		Group:             &cotproto.Group{Name: user.Team, Role: user.Role},
 	}
 
-	return evt
+	return &cot.CotMessage{TakMessage: evt, Scope: user.Scope}
 }
 
-func (app *App) sendCotMessage(msg *cotproto.TakMessage) {
+func (app *App) sendCotMessage(msg *cot.CotMessage) {
 	if viper.GetString("cot.server") == "" {
 		return
 	}
 
-	data, err := proto.Marshal(msg)
+	if viper.GetString("cot.proto") == "http" {
+		if err := app.sendHttp(msg); err != nil {
+			app.logger.Errorf("http send error: %s", err.Error())
+		}
+	} else {
+		app.sendTcp(msg)
+	}
+}
+
+func (app *App) sendTcp(msg *cot.CotMessage) {
+	data, err := proto.Marshal(msg.TakMessage)
 	if err != nil {
 		app.logger.Errorf("marshal error: %v", err)
 		return
@@ -347,6 +359,20 @@ func (app *App) sendCotMessage(msg *cotproto.TakMessage) {
 	if _, err := conn.Write(fulldata); err != nil {
 		app.logger.Errorf("write error: %v", err)
 	}
+}
+
+func (app *App) sendHttp(msg *cot.CotMessage) error {
+	cl := http.Client{
+		Timeout: time.Second * 5,
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+
+	_, err = cl.Post(viper.GetString("cot.server"), "application/json", bytes.NewReader(data))
+	return err
 }
 
 func getName(u *tg.User) string {
