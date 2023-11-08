@@ -25,7 +25,7 @@ func (app *App) callsign(update tg.Update, user *UserInfo) (tg.Chattable, error)
 	user.Callsign = args
 	app.users.AddUser(user)
 
-	msg := tg.NewMessage(update.SentFrom().ID, fmt.Sprintf("your team now is  %s and callsign is %s", user.Team, user.Callsign))
+	msg := tg.NewMessage(update.SentFrom().ID, getMessage(user))
 	msg.ReplyMarkup = tg.NewRemoveKeyboard(false)
 
 	return msg, nil
@@ -75,12 +75,15 @@ func (app *App) role(update tg.Update, user *UserInfo) (tg.Chattable, error) {
 
 func (app *App) callbackTeam(cq *tg.CallbackQuery, user *UserInfo, data string) (tg.Chattable, error) {
 	user.Team = data
+	if user.Team == NO_TEAM {
+		user.Team = ""
+	}
 	app.users.AddUser(user)
 
 	msg1 := tg.NewCallback(cq.ID, "")
 	app.request(msg1)
 
-	msg := tg.NewMessage(cq.From.ID, fmt.Sprintf("now you are %s %s, callsign %s", user.Team, user.Role, user.Callsign))
+	msg := tg.NewMessage(cq.From.ID, getMessage(user))
 	msg.ReplyMarkup = tg.NewRemoveKeyboard(false)
 
 	return msg, nil
@@ -93,8 +96,16 @@ func (app *App) callbackRole(cq *tg.CallbackQuery, user *UserInfo, data string) 
 	msg1 := tg.NewCallback(cq.ID, "")
 	app.request(msg1)
 
-	msg := tg.NewMessage(cq.From.ID, fmt.Sprintf("now you are %s %s, callsign %s", user.Team, user.Role, user.Callsign))
+	msg := tg.NewMessage(cq.From.ID, getMessage(user))
 	msg.ReplyMarkup = tg.NewRemoveKeyboard(false)
 
 	return msg, nil
+}
+
+func getMessage(user *UserInfo) string {
+	if user.Team != "" {
+		return fmt.Sprintf("now you are %s %s, callsign %s", user.Team, user.Role, user.Callsign)
+	}
+
+	return fmt.Sprintf("your callsign is %s, type %s", user.Callsign, user.Typ)
 }

@@ -21,6 +21,7 @@ import (
 )
 
 const magicByte = 0xbf
+const NO_TEAM = "no team"
 
 var (
 	gitRevision string
@@ -29,6 +30,7 @@ var (
 
 var (
 	colors = []string{
+		NO_TEAM,
 		"White",
 		"Yellow",
 		"Orange",
@@ -130,22 +132,22 @@ func (app *App) initCommands() error {
 	commands := []*Command{
 		{
 			key:  "start",
-			desc: "Запустить бота",
+			desc: "start",
 			cb:   app.start,
 		},
 		{
 			key:  "callsign",
-			desc: "Установить позывной",
+			desc: "Change callsign",
 			cb:   app.callsign,
 		},
 		{
 			key:  "team",
-			desc: "Указать команду",
+			desc: "Change team",
 			cb:   app.team,
 		},
 		{
 			key:  "role",
-			desc: "Указать роль",
+			desc: "Change role",
 			cb:   app.role,
 		},
 	}
@@ -315,9 +317,11 @@ func makeCot(user *UserInfo, lat, lon, acc, heading float64) *cot.CotMessage {
 		Contact:           &cotproto.Contact{Callsign: user.Callsign},
 		PrecisionLocation: &cotproto.PrecisionLocation{Geopointsrc: "GPS"},
 		Track:             &cotproto.Track{Course: heading},
-		Group:             &cotproto.Group{Name: user.Team, Role: user.Role},
 	}
 
+	if user.Team != "" {
+		evt.CotEvent.Detail.Group = &cotproto.Group{Name: user.Team, Role: user.Role}
+	}
 	return &cot.CotMessage{TakMessage: evt, Scope: user.Scope}
 }
 

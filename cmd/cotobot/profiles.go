@@ -12,7 +12,7 @@ import (
 type UserInfo struct {
 	Id       string `yaml:"id"`
 	Callsign string `yaml:"callsign"`
-	Team     string `yaml:"team"`
+	Team     string `yaml:"team,omitempty"`
 	Role     string `yaml:"role"`
 	Typ      string `yaml:"type"`
 	Scope    string `yaml:"scope"`
@@ -63,7 +63,6 @@ func (um *UserManager) Get(id, name string) *UserInfo {
 		Id:       id,
 		Callsign: name,
 		Role:     "Team Member",
-		Team:     "White",
 		Scope:    "test",
 		Typ:      "a-f-G",
 	}
