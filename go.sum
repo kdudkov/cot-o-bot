@@ -130,8 +130,8 @@ github.com/ianlancetaylor/demangle v0.0.0-20181102032728-5e5cf60278f6/go.mod h1:
 github.com/ianlancetaylor/demangle v0.0.0-20200824232613-28f6c0f3b639/go.mod h1:aSSvb/t6k1mPoxDqO4vJh6VOCGPwU4O0C2/Eqndh1Sc=
 github.com/jstemmer/go-junit-report v0.0.0-20190106144839-af01ea7f8024/go.mod h1:6v2b51hI/fHJwM22ozAgKL4VKDeJcHhJFhtBdhmNjmU=
 github.com/jstemmer/go-junit-report v0.9.1/go.mod h1:Brl9GWCQeLvo8nXZwPNNblvFj/XSXhF0NWZEnDohbsk=
-github.com/kdudkov/goatak v0.14.4 h1:sZ/isdTX5QpgvhG/wX6DyOa2/OIbbpizsgXinQiEB+A=
-github.com/kdudkov/goatak v0.14.4/go.mod h1:yd1Je736fUSWG19SUZ1ph+MDB2RPQlYEfcwfs9LK7q0=
+github.com/kdudkov/goatak v0.14.5 h1:CIZdoozR7X/kvWvw35faCWn+GAullq7CxQbcIa38wz8=
+github.com/kdudkov/goatak v0.14.5/go.mod h1:yd1Je736fUSWG19SUZ1ph+MDB2RPQlYEfcwfs9LK7q0=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
 github.com/kr/fs v0.1.0/go.mod h1:FFnZGqtBN9Gxj7eW1uZ42v5BccTP0vu6NEaFoC2HwRg=
 github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORNo=
