@@ -159,6 +159,7 @@ func (app *App) initCommands() error {
 
 	config := tg.NewSetMyCommands(tgCommands...)
 	_, err := app.bot.Request(config)
+
 	return err
 }
 
@@ -173,24 +174,23 @@ func (app *App) Run() {
 
 	app.logger.Info("registering " + app.bot.Self.String())
 
-	sigc := make(chan os.Signal, 1)
-
-	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
-
 	updates, err := app.GetUpdatesChannel()
 	if err != nil {
-		app.logger.Error(err.Error())
+		app.logger.Error("error getting channel", "error", err.Error())
 		return
 	}
 
-	err = app.initCommands()
-
-	if err != nil {
-		app.logger.Error(err.Error())
+	if err := app.initCommands(); err != nil {
+		app.logger.Error("error on init commands", "error", err.Error())
 		return
 	}
 
-	app.users.Start()
+	if err := app.users.Start(); err != nil {
+		panic(err)
+	}
+
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
 
 	for {
 		select {
@@ -272,7 +272,9 @@ func (app *App) Process(update tg.Update) {
 		logger.Info("message: " + message.Text)
 	}
 
-	app.sendMsg(answer)
+	if err := app.sendMsg(answer); err != nil {
+		logger.Error("answer send error", "error", err)
+	}
 }
 
 func (app *App) sendMsg(msg tg.Chattable) error {
@@ -401,7 +403,7 @@ func main() {
 	h := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
 	slog.SetDefault(slog.New(h))
 
-	slog.Default().Info("starting app version" + getVersion())
+	slog.Default().Info("starting app version " + getVersion())
 
 	NewApp().Run()
 }
