@@ -1,11 +1,11 @@
 package main
 
 import (
+	"log/slog"
 	"os"
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
-	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -20,7 +20,7 @@ type UserInfo struct {
 
 type UserManager struct {
 	userFile string
-	logger   *zap.SugaredLogger
+	logger   *slog.Logger
 	users    map[string]*UserInfo
 
 	watcher  *fsnotify.Watcher
@@ -40,9 +40,9 @@ func (u *UserInfo) Copy() *UserInfo {
 	}
 }
 
-func NewUserManager(logger *zap.SugaredLogger, userFile string) *UserManager {
+func NewUserManager(userFile string) *UserManager {
 	um := &UserManager{
-		logger:   logger.Named("UserManager"),
+		logger:   slog.Default().With("logger", "UserManager"),
 		userFile: userFile,
 		users:    make(map[string]*UserInfo),
 		mx:       sync.RWMutex{},
@@ -121,7 +121,7 @@ func (um *UserManager) loadUsersFile() error {
 func (um *UserManager) saver() {
 	for range um.savechan {
 		if err := um.save(); err != nil {
-			um.logger.Errorf("error save file: %s", err.Error())
+			um.logger.Error("error save file", "error", err.Error())
 		}
 	}
 }
@@ -165,18 +165,18 @@ func (um *UserManager) Start() error {
 				if !ok {
 					return
 				}
-				um.logger.Debugf("event: %v", event)
+				um.logger.Debug("event: " + event.String())
 				if event.Has(fsnotify.Write) && event.Name == um.userFile {
-					um.logger.Infof("users file is modified, reloading")
+					um.logger.Info("users file is modified, reloading")
 					if err := um.loadUsersFile(); err != nil {
-						um.logger.Errorf("error: %s", err.Error())
+						um.logger.Error("error", "error", err.Error())
 					}
 				}
 			case err, ok := <-um.watcher.Errors:
 				if !ok {
 					return
 				}
-				um.logger.Errorf("error: %s", err.Error())
+				um.logger.Error("error", "error", err.Error())
 			}
 		}
 	}()

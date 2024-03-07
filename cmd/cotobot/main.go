@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"google.golang.org/protobuf/proto"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -13,20 +13,16 @@ import (
 	"syscall"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	tg "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/kdudkov/goatak/pkg/cot"
 	"github.com/kdudkov/goatak/pkg/cotproto"
 	"github.com/spf13/viper"
-	"go.uber.org/zap"
 )
 
 const magicByte = 0xbf
 const NO_TEAM = "no team"
-
-var (
-	gitRevision string
-	gitBranch   string
-)
 
 var (
 	colors = []string{
@@ -60,17 +56,17 @@ type Command struct {
 
 type App struct {
 	bot       *tg.BotAPI
-	logger    *zap.SugaredLogger
+	logger    *slog.Logger
 	users     *UserManager
 	commands  map[string]*Command
 	callbacks map[string]Cb
 }
 
-func NewApp(logger *zap.SugaredLogger) (app *App) {
+func NewApp() (app *App) {
 	app = new(App)
 	app.commands = make(map[string]*Command)
-	app.logger = logger
-	app.users = NewUserManager(logger, "users.yml")
+	app.logger = slog.Default()
+	app.users = NewUserManager("users.yml")
 	app.callbacks = map[string]Cb{
 		"team": app.callbackTeam,
 		"role": app.callbackRole,
@@ -80,14 +76,14 @@ func NewApp(logger *zap.SugaredLogger) (app *App) {
 
 func (app *App) GetUpdatesChannel() (tg.UpdatesChannel, error) {
 	if webhook := viper.GetString("webhook.ext"); webhook != "" {
-		app.logger.Infof("start listener on %s, path %s", viper.GetString("webhook.listen"), viper.GetString("webhook.path"))
+		app.logger.Info(fmt.Sprintf("start listener on %s, path %s", viper.GetString("webhook.listen"), viper.GetString("webhook.path")))
 		go func() {
 			if err := http.ListenAndServe(viper.GetString("webhook.listen"), nil); err != nil {
 				panic(err)
 			}
 		}()
 
-		app.logger.Infof("starting webhook %s", webhook)
+		app.logger.Info("starting webhook " + webhook)
 
 		wh, _ := tg.NewWebhook(webhook)
 		if _, err := app.bot.Request(wh); err != nil {
@@ -99,7 +95,7 @@ func (app *App) GetUpdatesChannel() (tg.UpdatesChannel, error) {
 			return nil, err
 		}
 
-		app.logger.Infof("%s %s", info.LastErrorDate, info.LastErrorMessage)
+		app.logger.Info(fmt.Sprintf("%s %s", info.LastErrorDate, info.LastErrorMessage))
 
 		//if info.LastErrorDate != 0 {
 		//	app.logger.Errorf("Telegram callback failed: %s", info.LastErrorMessage)
@@ -119,7 +115,7 @@ func (app *App) GetUpdatesChannel() (tg.UpdatesChannel, error) {
 
 func (app *App) removeWebhook() {
 	if _, err := app.bot.Request(tg.WebhookConfig{URL: nil}); err != nil {
-		app.logger.Errorf("remove webhook error: %v", err)
+		app.logger.Error("remove webhook error", "error", err)
 	}
 }
 
@@ -175,7 +171,7 @@ func (app *App) Run() {
 		panic("can't start bot " + err.Error())
 	}
 
-	app.logger.Infof("registering %s", app.bot.Self.String())
+	app.logger.Info("registering " + app.bot.Self.String())
 
 	sigc := make(chan os.Signal, 1)
 
@@ -212,18 +208,18 @@ func (app *App) Process(update tg.Update) {
 	if cq := update.CallbackQuery; cq != nil {
 		user := app.users.Get(fmt.Sprintf("%d", cq.From.ID), fmt.Sprintf("tg-%s", getName(cq.From)))
 		txt := cq.Data
-		app.logger.Infof("callback with data %s", txt)
+		app.logger.Info("callback with data " + txt)
 		tokens := strings.SplitN(txt, "_", 2)
 
 		if len(tokens) != 2 {
-			app.logger.Warnf("invalid callback data: %s", txt)
+			app.logger.Warn("invalid callback data: " + txt)
 			return
 		}
 
 		if cb, ok := app.callbacks[tokens[0]]; ok {
 			msg, err := cb(cq, user, tokens[1])
 			if err != nil {
-				app.logger.Errorf("callback error: %s", err.Error())
+				app.logger.Error("callback error", "error", err.Error())
 				return
 			}
 			app.sendMsg(msg)
@@ -241,7 +237,7 @@ func (app *App) Process(update tg.Update) {
 	}
 
 	if message == nil {
-		app.logger.Warnf("no message")
+		app.logger.Warn("no message")
 		return
 	}
 
@@ -256,13 +252,13 @@ func (app *App) Process(update tg.Update) {
 			var err error
 			answer, err = cmd.cb(update, user)
 			if err != nil {
-				logger.Errorf("error in command %s: %s", message.Text, err.Error())
+				logger.Error(fmt.Sprintf("error in command %s: %s", message.Text, err.Error()))
 				return
 			}
 		}
 	case message.Location != nil:
 		loc := message.Location
-		logger.Infof("location: %f %f %f", loc.Latitude, loc.Longitude, loc.HorizontalAccuracy)
+		logger.Info(fmt.Sprintf("location: %f %f %f", loc.Latitude, loc.Longitude, loc.HorizontalAccuracy))
 		if viper.GetString("cot.server") != "" {
 			app.sendCotMessage(makeCot(
 				user,
@@ -273,7 +269,7 @@ func (app *App) Process(update tg.Update) {
 			)
 		}
 	default:
-		logger.Infof("message: %s", message.Text)
+		logger.Info("message: " + message.Text)
 	}
 
 	app.sendMsg(answer)
@@ -285,7 +281,7 @@ func (app *App) sendMsg(msg tg.Chattable) error {
 	}
 
 	if _, err := app.bot.Send(msg); err != nil {
-		app.logger.Errorf("can't send message: %s", err.Error())
+		app.logger.Error("can't send message", "error", err.Error())
 		return err
 	}
 
@@ -298,7 +294,7 @@ func (app *App) request(msg tg.Chattable) error {
 	}
 
 	if _, err := app.bot.Request(msg); err != nil {
-		app.logger.Errorf("can't send request: %s", err.Error())
+		app.logger.Error("can't send request", "error", err.Error())
 		return err
 	}
 
@@ -322,6 +318,7 @@ func makeCot(user *UserInfo, lat, lon, acc, heading float64) *cot.CotMessage {
 	if user.Team != "" {
 		evt.CotEvent.Detail.Group = &cotproto.Group{Name: user.Team, Role: user.Role}
 	}
+
 	return &cot.CotMessage{TakMessage: evt, Scope: user.Scope}
 }
 
@@ -332,7 +329,7 @@ func (app *App) sendCotMessage(msg *cot.CotMessage) {
 
 	if viper.GetString("cot.proto") == "http" {
 		if err := app.sendHttp(msg); err != nil {
-			app.logger.Errorf("http send error: %s", err.Error())
+			app.logger.Error("http send error", "error", err.Error())
 		}
 	} else {
 		app.sendTcp(msg)
@@ -342,7 +339,7 @@ func (app *App) sendCotMessage(msg *cot.CotMessage) {
 func (app *App) sendTcp(msg *cot.CotMessage) {
 	data, err := proto.Marshal(msg.TakMessage)
 	if err != nil {
-		app.logger.Errorf("marshal error: %v", err)
+		app.logger.Error("marshal error", "error", err)
 		return
 	}
 
@@ -354,14 +351,14 @@ func (app *App) sendTcp(msg *cot.CotMessage) {
 
 	conn, err := net.Dial(viper.GetString("cot.proto"), viper.GetString("cot.server"))
 	if err != nil {
-		app.logger.Errorf("connection error: %v", err)
+		app.logger.Error("connection error", "error", err)
 		return
 	}
 	defer conn.Close()
 
 	_ = conn.SetWriteDeadline(time.Now().Add(time.Second * 10))
 	if _, err := conn.Write(fulldata); err != nil {
-		app.logger.Errorf("write error: %v", err)
+		app.logger.Error("write error", "error", err)
 	}
 }
 
@@ -401,19 +398,10 @@ func main() {
 		panic(fmt.Errorf("fatal error config file: %s", err))
 	}
 
-	config := zap.NewProductionConfig()
-	config.Encoding = "console"
+	h := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
+	slog.SetDefault(slog.New(h))
 
-	logger, err := config.Build()
-	defer logger.Sync()
+	slog.Default().Info("starting app version" + getVersion())
 
-	if err != nil {
-		panic(err.Error())
-	}
-
-	sl := logger.Sugar()
-	sl.Infof("starting app branch %s, rev %s", gitBranch, gitRevision)
-
-	app := NewApp(sl)
-	app.Run()
+	NewApp().Run()
 }
