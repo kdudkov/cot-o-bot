@@ -99,7 +99,9 @@ func (app *App) GetUpdatesChannel() (tg.UpdatesChannel, error) {
 			return nil, err
 		}
 
-		app.logger.Info(fmt.Sprintf("%s %s", info.LastErrorDate, info.LastErrorMessage))
+		if info.LastErrorDate != 0 {
+			app.logger.Info(fmt.Sprintf("error %d %s", info.LastErrorDate, info.LastErrorMessage))
+		}
 
 		//if info.LastErrorDate != 0 {
 		//	app.logger.Errorf("Telegram callback failed: %s", info.LastErrorMessage)
