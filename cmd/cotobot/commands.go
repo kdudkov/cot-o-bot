@@ -23,7 +23,7 @@ func (app *App) callsign(update tg.Update, user *UserInfo) (tg.Chattable, error)
 	}
 
 	if args != user.Callsign {
-		app.logger.Info("%s callsign %s -> %s", user.Id, user.Callsign, args)
+		app.logger.Info(fmt.Sprintf("%s callsign %s -> %s", user.Id, user.Callsign, args))
 		user.Callsign = args
 		app.users.AddUser(user)
 	}
@@ -78,7 +78,7 @@ func (app *App) role(update tg.Update, user *UserInfo) (tg.Chattable, error) {
 
 func (app *App) callbackTeam(cq *tg.CallbackQuery, user *UserInfo, data string) (tg.Chattable, error) {
 	if data != user.Team {
-		app.logger.Info("%s team %s -> %s", user.Id, user.Team, data)
+		app.logger.Info(fmt.Sprintf("%s team %s -> %s", user.Id, user.Team, data))
 
 		user.Team = data
 		if user.Team == NO_TEAM {
@@ -98,7 +98,7 @@ func (app *App) callbackTeam(cq *tg.CallbackQuery, user *UserInfo, data string) 
 
 func (app *App) callbackRole(cq *tg.CallbackQuery, user *UserInfo, data string) (tg.Chattable, error) {
 	if data != user.Role {
-		app.logger.Info("%s role %s -> %s", user.Id, user.Role, data)
+		app.logger.Info(fmt.Sprintf("%s role %s -> %s", user.Id, user.Role, data))
 		user.Role = data
 		app.users.AddUser(user)
 	}
