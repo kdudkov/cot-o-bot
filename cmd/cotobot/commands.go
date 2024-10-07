@@ -22,8 +22,11 @@ func (app *App) callsign(update tg.Update, user *UserInfo) (tg.Chattable, error)
 		return tg.NewMessage(update.SentFrom().ID, "usage: /callsign <callsign>"), nil
 	}
 
-	user.Callsign = args
-	app.users.AddUser(user)
+	if args != user.Callsign {
+		app.logger.Info("%s callsign %s -> %s", user.Id, user.Callsign, args)
+		user.Callsign = args
+		app.users.AddUser(user)
+	}
 
 	msg := tg.NewMessage(update.SentFrom().ID, getMessage(user))
 	msg.ReplyMarkup = tg.NewRemoveKeyboard(false)
@@ -74,11 +77,15 @@ func (app *App) role(update tg.Update, user *UserInfo) (tg.Chattable, error) {
 }
 
 func (app *App) callbackTeam(cq *tg.CallbackQuery, user *UserInfo, data string) (tg.Chattable, error) {
-	user.Team = data
-	if user.Team == NO_TEAM {
-		user.Team = ""
+	if data != user.Team {
+		app.logger.Info("%s team %s -> %s", user.Id, user.Team, data)
+
+		user.Team = data
+		if user.Team == NO_TEAM {
+			user.Team = ""
+		}
+		app.users.AddUser(user)
 	}
-	app.users.AddUser(user)
 
 	msg1 := tg.NewCallback(cq.ID, "")
 	app.request(msg1)
@@ -90,8 +97,11 @@ func (app *App) callbackTeam(cq *tg.CallbackQuery, user *UserInfo, data string) 
 }
 
 func (app *App) callbackRole(cq *tg.CallbackQuery, user *UserInfo, data string) (tg.Chattable, error) {
-	user.Role = data
-	app.users.AddUser(user)
+	if data != user.Role {
+		app.logger.Info("%s role %s -> %s", user.Id, user.Role, data)
+		user.Role = data
+		app.users.AddUser(user)
+	}
 
 	msg1 := tg.NewCallback(cq.ID, "")
 	app.request(msg1)
