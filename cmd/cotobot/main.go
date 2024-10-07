@@ -18,7 +18,9 @@ import (
 	tg "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/kdudkov/goatak/pkg/cot"
 	"github.com/kdudkov/goatak/pkg/cotproto"
-	"github.com/spf13/viper"
+	"github.com/knadh/koanf/parsers/yaml"
+	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/v2"
 )
 
 const magicByte = 0xbf
@@ -55,6 +57,7 @@ type Command struct {
 }
 
 type App struct {
+	k         *koanf.Koanf
 	bot       *tg.BotAPI
 	logger    *slog.Logger
 	users     *UserManager
@@ -62,8 +65,9 @@ type App struct {
 	callbacks map[string]Cb
 }
 
-func NewApp() (app *App) {
+func NewApp(k *koanf.Koanf) (app *App) {
 	app = new(App)
+	app.k = k
 	app.commands = make(map[string]*Command)
 	app.logger = slog.Default()
 	app.users = NewUserManager("users.yml")
@@ -75,10 +79,10 @@ func NewApp() (app *App) {
 }
 
 func (app *App) GetUpdatesChannel() (tg.UpdatesChannel, error) {
-	if webhook := viper.GetString("webhook.ext"); webhook != "" {
-		app.logger.Info(fmt.Sprintf("start listener on %s, path %s", viper.GetString("webhook.listen"), viper.GetString("webhook.path")))
+	if webhook := app.k.String("webhook.ext"); webhook != "" {
+		app.logger.Info(fmt.Sprintf("start listener on %s, path %s", app.k.String("webhook.listen"), app.k.String("webhook.path")))
 		go func() {
-			if err := http.ListenAndServe(viper.GetString("webhook.listen"), nil); err != nil {
+			if err := http.ListenAndServe(app.k.String("webhook.listen"), nil); err != nil {
 				panic(err)
 			}
 		}()
@@ -102,7 +106,7 @@ func (app *App) GetUpdatesChannel() (tg.UpdatesChannel, error) {
 		//	return nil, fmt.Errorf(info.LastErrorMessage)
 		//}
 
-		return app.bot.ListenForWebhook(viper.GetString("webhook.path")), nil
+		return app.bot.ListenForWebhook(app.k.String("webhook.path")), nil
 	}
 
 	app.logger.Info("start polling")
@@ -166,7 +170,7 @@ func (app *App) initCommands() error {
 func (app *App) Run() {
 	var err error
 
-	app.bot, err = tg.NewBotAPI(viper.GetString("token"))
+	app.bot, err = tg.NewBotAPI(app.k.String("token"))
 
 	if err != nil {
 		panic("can't start bot " + err.Error())
@@ -259,9 +263,10 @@ func (app *App) Process(update tg.Update) {
 	case message.Location != nil:
 		loc := message.Location
 		logger.Info(fmt.Sprintf("location: %f %f %f", loc.Latitude, loc.Longitude, loc.HorizontalAccuracy))
-		if viper.GetString("cot.server") != "" {
+		if app.k.String("cot.server") != "" {
 			app.sendCotMessage(makeCot(
 				user,
+				app.k.Duration("cot.stale"),
 				loc.Latitude,
 				loc.Longitude,
 				loc.HorizontalAccuracy,
@@ -303,8 +308,8 @@ func (app *App) request(msg tg.Chattable) error {
 	return nil
 }
 
-func makeCot(user *UserInfo, lat, lon, acc, heading float64) *cot.CotMessage {
-	evt := cot.BasicMsg(user.Typ, "tg-"+user.Id, viper.GetDuration("cot.stale"))
+func makeCot(user *UserInfo, d time.Duration, lat, lon, acc, heading float64) *cot.CotMessage {
+	evt := cot.BasicMsg(user.Typ, "tg-"+user.Id, d)
 	evt.CotEvent.How = "a-g"
 	evt.CotEvent.Lon = lon
 	evt.CotEvent.Lat = lat
@@ -325,11 +330,11 @@ func makeCot(user *UserInfo, lat, lon, acc, heading float64) *cot.CotMessage {
 }
 
 func (app *App) sendCotMessage(msg *cot.CotMessage) {
-	if viper.GetString("cot.server") == "" {
+	if app.k.String("cot.server") == "" {
 		return
 	}
 
-	if viper.GetString("cot.proto") == "http" {
+	if app.k.String("cot.proto") == "http" {
 		if err := app.sendHttp(msg); err != nil {
 			app.logger.Error("http send error", "error", err.Error())
 		}
@@ -351,11 +356,12 @@ func (app *App) sendTcp(msg *cot.CotMessage) {
 	fulldata[1] = 1
 	fulldata[2] = magicByte
 
-	conn, err := net.Dial(viper.GetString("cot.proto"), viper.GetString("cot.server"))
+	conn, err := net.Dial(app.k.String("cot.proto"), app.k.String("cot.server"))
 	if err != nil {
 		app.logger.Error("connection error", "error", err)
 		return
 	}
+
 	defer conn.Close()
 
 	_ = conn.SetWriteDeadline(time.Now().Add(time.Second * 10))
@@ -374,7 +380,7 @@ func (app *App) sendHttp(msg *cot.CotMessage) error {
 		return err
 	}
 
-	_, err = cl.Post(viper.GetString("cot.server"), "application/json", bytes.NewReader(data))
+	_, err = cl.Post(app.k.String("cot.server"), "application/json", bytes.NewReader(data))
 	return err
 }
 
@@ -390,14 +396,14 @@ func getName(u *tg.User) string {
 }
 
 func main() {
-	viper.SetConfigName("cotobot")
-	viper.AddConfigPath(".")
+	k := koanf.New(".")
 
-	viper.SetDefault("cot.proto", "tcp")
-	viper.SetDefault("cot.stale", time.Minute*10)
+	k.Set("cot.proto", "tcp")
+	k.Set("cot.stale", time.Minute*10)
 
-	if err := viper.ReadInConfig(); err != nil {
-		panic(fmt.Errorf("fatal error config file: %s", err))
+	if err := k.Load(file.Provider("cotobot.yml"), yaml.Parser()); err != nil {
+		fmt.Printf("error loading config: %s", err.Error())
+		return
 	}
 
 	h := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
@@ -405,5 +411,5 @@ func main() {
 
 	slog.Default().Info("starting app version " + getVersion())
 
-	NewApp().Run()
+	NewApp(k).Run()
 }
