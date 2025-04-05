@@ -21,6 +21,8 @@ import (
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
+
+	"cotobot/cmd/cotobot/database"
 )
 
 const magicByte = 0xbf
@@ -48,12 +50,12 @@ var (
 	roles = []string{"Team Member", "HQ", "Team Lead", "K9", "Forward Observer", "Sniper", "Medic", "RTO"}
 )
 
-type Cb func(cq *tg.CallbackQuery, user *UserInfo, data string) (tg.Chattable, error)
+type Cb func(cq *tg.CallbackQuery, user *database.UserInfo, data string) (tg.Chattable, error)
 
 type Command struct {
 	key  string
 	desc string
-	cb   func(update tg.Update, user *UserInfo) (tg.Chattable, error)
+	cb   func(update tg.Update, user *database.UserInfo) (tg.Chattable, error)
 }
 
 type App struct {
@@ -68,9 +70,16 @@ type App struct {
 func NewApp(k *koanf.Koanf) (app *App) {
 	app = new(App)
 	app.k = k
+
+	db, err := database.GetDatabase("bot.sqlite", false)
+
+	if err != nil {
+		panic(err)
+	}
+
 	app.commands = make(map[string]*Command)
 	app.logger = slog.Default()
-	app.users = NewUserManager("users.yml")
+	app.users = NewUserManager(db, "users.yml")
 	app.callbacks = map[string]Cb{
 		"team": app.callbackTeam,
 		"role": app.callbackRole,
@@ -127,7 +136,6 @@ func (app *App) removeWebhook() {
 
 func (app *App) quit() {
 	app.bot.StopReceivingUpdates()
-	app.users.Stop()
 }
 
 func (app *App) initCommands() error {
@@ -212,7 +220,11 @@ func (app *App) Run() {
 
 func (app *App) Process(update tg.Update) {
 	if cq := update.CallbackQuery; cq != nil {
-		user := app.users.Get(fmt.Sprintf("%d", cq.From.ID), fmt.Sprintf("tg-%s", getName(cq.From)))
+		user := app.users.Get(
+			fmt.Sprintf("%d", cq.From.ID),
+			getLogin(cq.From),
+			fmt.Sprintf("tg-%s", getName(cq.From)),
+		)
 		txt := cq.Data
 		app.logger.Info("callback with data " + txt)
 		tokens := strings.SplitN(txt, "_", 2)
@@ -247,7 +259,11 @@ func (app *App) Process(update tg.Update) {
 		return
 	}
 
-	user := app.users.Get(fmt.Sprintf("%d", message.From.ID), fmt.Sprintf("tg-%s", getName(message.From)))
+	user := app.users.Get(
+		fmt.Sprintf("%d", message.From.ID),
+		getLogin(message.From),
+		fmt.Sprintf("tg-%s", getName(message.From)),
+	)
 	logger := app.logger.With("id", message.From.ID, "name", message.From.UserName)
 
 	var answer tg.Chattable
@@ -265,6 +281,7 @@ func (app *App) Process(update tg.Update) {
 	case message.Location != nil:
 		loc := message.Location
 		logger.Info(fmt.Sprintf("location: %f %f %f", loc.Latitude, loc.Longitude, loc.HorizontalAccuracy))
+		app.users.UpdatePos(user.Id, getLogin(message.From))
 		if app.k.String("cot.server") != "" {
 			app.sendCotMessage(makeCot(
 				user,
@@ -310,8 +327,8 @@ func (app *App) request(msg tg.Chattable) error {
 	return nil
 }
 
-func makeCot(user *UserInfo, d time.Duration, lat, lon, acc, heading float64) *cot.CotMessage {
-	evt := cot.BasicMsg(user.Typ, "tg-"+user.Id, d)
+func makeCot(user *database.UserInfo, d time.Duration, lat, lon, acc, heading float64) *cot.CotMessage {
+	evt := cot.BasicMsg(user.CotType, "tg-"+user.Id, d)
 	evt.CotEvent.How = "a-g"
 	evt.CotEvent.Lon = lon
 	evt.CotEvent.Lat = lat
@@ -387,6 +404,10 @@ func (app *App) sendHttp(msg *cot.CotMessage) error {
 }
 
 func getName(u *tg.User) string {
+	if u == nil {
+		return ""
+	}
+
 	switch {
 	case u.UserName != "":
 		return u.UserName
@@ -395,6 +416,14 @@ func getName(u *tg.User) string {
 	default:
 		return fmt.Sprintf("%d", u.ID)
 	}
+}
+
+func getLogin(u *tg.User) string {
+	if u == nil {
+		return ""
+	}
+
+	return u.UserName
 }
 
 func main() {
