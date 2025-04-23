@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kdudkov/goatak/pkg/util"
 	"google.golang.org/protobuf/proto"
 
 	tg "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -55,36 +56,41 @@ type Cb func(cq *tg.CallbackQuery, user *database.UserInfo, data string) (tg.Cha
 type Command struct {
 	key  string
 	desc string
-	cb   func(update tg.Update, user *database.UserInfo) (tg.Chattable, error)
+	cb   func(update *tg.Update, user *database.UserInfo) (tg.Chattable, error)
 }
 
 type App struct {
-	k         *koanf.Koanf
-	bot       *tg.BotAPI
-	logger    *slog.Logger
-	users     *UserManager
-	commands  map[string]*Command
-	callbacks map[string]Cb
+	k            *koanf.Koanf
+	bot          *tg.BotAPI
+	logger       *slog.Logger
+	defaultScope string
+	users        *UserManager
+	commands     map[string]*Command
+	callbacks    map[string]Cb
 }
 
-func NewApp(k *koanf.Koanf) (app *App) {
-	app = new(App)
-	app.k = k
-
+func NewApp(k *koanf.Koanf) *App {
 	db, err := database.GetDatabase("bot.sqlite", false)
 
 	if err != nil {
 		panic(err)
 	}
 
-	app.commands = make(map[string]*Command)
-	app.logger = slog.Default()
-	app.users = NewUserManager(db, "users.yml")
+	app := &App{
+		k:            k,
+		bot:          nil,
+		logger:       slog.Default(),
+		defaultScope: "test",
+		users:        NewUserManager(db, "users.yml"),
+		commands:     make(map[string]*Command),
+	}
+
 	app.callbacks = map[string]Cb{
 		"team": app.callbackTeam,
 		"role": app.callbackRole,
 	}
-	return
+
+	return app
 }
 
 func (app *App) GetUpdatesChannel() (tg.UpdatesChannel, error) {
@@ -182,7 +188,7 @@ func (app *App) Run() {
 
 	app.bot, err = tg.NewBotAPI(app.k.String("token"))
 
-	if err != nil {
+	if err != nil || app.bot == nil {
 		panic("can't start bot " + err.Error())
 	}
 
@@ -225,6 +231,7 @@ func (app *App) Process(update tg.Update) {
 			getLogin(cq.From),
 			fmt.Sprintf("tg-%s", getName(cq.From)),
 		)
+
 		txt := cq.Data
 		app.logger.Info("callback with data " + txt)
 		tokens := strings.SplitN(txt, "_", 2)
@@ -272,7 +279,7 @@ func (app *App) Process(update tg.Update) {
 		command := message.Command()
 		if cmd, ok := app.commands[command]; ok {
 			var err error
-			answer, err = cmd.cb(update, user)
+			answer, err = cmd.cb(&update, user)
 			if err != nil {
 				logger.Error(fmt.Sprintf("error in command %s: %s", message.Text, err.Error()))
 				return
@@ -283,7 +290,7 @@ func (app *App) Process(update tg.Update) {
 		logger.Info(fmt.Sprintf("location: %f %f %f", loc.Latitude, loc.Longitude, loc.HorizontalAccuracy))
 		app.users.UpdatePos(user.Id, getLogin(message.From))
 		if app.k.String("cot.server") != "" {
-			app.sendCotMessage(makeCot(
+			app.sendCotMessage(app.makeCot(
 				user,
 				app.k.Duration("cot.stale"),
 				loc.Latitude,
@@ -327,13 +334,15 @@ func (app *App) request(msg tg.Chattable) error {
 	return nil
 }
 
-func makeCot(user *database.UserInfo, d time.Duration, lat, lon, acc, heading float64) *cot.CotMessage {
+func (app *App) makeCot(user *database.UserInfo, d time.Duration, lat, lon, acc, heading float64) *cot.CotMessage {
+	scope := util.FirstString(user.Scope, app.defaultScope)
+
 	evt := cot.BasicMsg(user.CotType, "tg-"+user.Id, d)
 	evt.CotEvent.How = "a-g"
 	evt.CotEvent.Lon = lon
 	evt.CotEvent.Lat = lat
 	evt.CotEvent.Ce = acc
-	evt.CotEvent.Access = user.Scope
+	evt.CotEvent.Access = scope
 
 	evt.CotEvent.Detail = &cotproto.Detail{
 		Contact:           &cotproto.Contact{Callsign: user.Callsign},
@@ -345,7 +354,7 @@ func makeCot(user *database.UserInfo, d time.Duration, lat, lon, acc, heading fl
 		evt.CotEvent.Detail.Group = &cotproto.Group{Name: user.Team, Role: user.Role}
 	}
 
-	return &cot.CotMessage{TakMessage: evt, Scope: user.Scope}
+	return &cot.CotMessage{TakMessage: evt, Scope: scope}
 }
 
 func (app *App) sendCotMessage(msg *cot.CotMessage) {

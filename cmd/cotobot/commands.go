@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	tg "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"cotobot/cmd/cotobot/database"
 )
 
-func (app *App) start(update tg.Update, user *database.UserInfo) (tg.Chattable, error) {
+func (app *App) start(update *tg.Update, user *database.UserInfo) (tg.Chattable, error) {
 	name := getName(update.Message.From)
 
 	text := fmt.Sprintf("Now, %s, you can share your location here and it will be visible on takserver.ru using ATAK client", name)
@@ -18,15 +19,30 @@ func (app *App) start(update tg.Update, user *database.UserInfo) (tg.Chattable, 
 	return msg, nil
 }
 
-func (app *App) callsign(update tg.Update, user *database.UserInfo) (tg.Chattable, error) {
-	args := update.Message.CommandArguments()
+func (app *App) callsign(update *tg.Update, user *database.UserInfo) (tg.Chattable, error) {
+	var message *tg.Message
+
+	if update.EditedMessage != nil {
+		message = update.EditedMessage
+	} else {
+		message = update.Message
+	}
+
+	if message == nil {
+		app.logger.Error("empty message")
+		return nil, nil
+	}
+
+	args := message.CommandArguments()
 	if args == "" {
 		return tg.NewMessage(update.SentFrom().ID, "usage: /callsign <callsign>"), nil
 	}
 
-	if args != user.Callsign {
-		app.logger.Info(fmt.Sprintf("%s callsign %s -> %s", user.Id, user.Callsign, args))
-		user.Callsign = args
+	newCs := strings.Fields(args)[0]
+
+	if newCs != user.Callsign {
+		app.logger.Info(fmt.Sprintf("%s callsign %s -> %s", user.Id, user.Callsign, newCs))
+		user.Callsign = newCs
 		app.users.Save(user)
 	}
 
@@ -36,7 +52,7 @@ func (app *App) callsign(update tg.Update, user *database.UserInfo) (tg.Chattabl
 	return msg, nil
 }
 
-func (app *App) team(update tg.Update, user *database.UserInfo) (tg.Chattable, error) {
+func (app *App) team(update *tg.Update, user *database.UserInfo) (tg.Chattable, error) {
 	msg := tg.NewMessage(update.SentFrom().ID, "select team")
 
 	var keyboard [][]tg.InlineKeyboardButton
@@ -57,7 +73,7 @@ func (app *App) team(update tg.Update, user *database.UserInfo) (tg.Chattable, e
 	return msg, nil
 }
 
-func (app *App) role(update tg.Update, user *database.UserInfo) (tg.Chattable, error) {
+func (app *App) role(update *tg.Update, user *database.UserInfo) (tg.Chattable, error) {
 	msg := tg.NewMessage(update.SentFrom().ID, "select role")
 
 	var keyboard [][]tg.InlineKeyboardButton
@@ -89,8 +105,7 @@ func (app *App) callbackTeam(cq *tg.CallbackQuery, user *database.UserInfo, data
 		app.users.Save(user)
 	}
 
-	msg1 := tg.NewCallback(cq.ID, "")
-	app.request(msg1)
+	app.request(tg.NewCallback(cq.ID, ""))
 
 	msg := tg.NewMessage(cq.From.ID, getMessage(user))
 	msg.ReplyMarkup = tg.NewRemoveKeyboard(false)
@@ -99,6 +114,11 @@ func (app *App) callbackTeam(cq *tg.CallbackQuery, user *database.UserInfo, data
 }
 
 func (app *App) callbackRole(cq *tg.CallbackQuery, user *database.UserInfo, data string) (tg.Chattable, error) {
+	if user == nil {
+		app.logger.Error("user is nil")
+		return nil, nil
+	}
+
 	if data != user.Role {
 		app.logger.Info(fmt.Sprintf("%s role %s -> %s", user.Id, user.Role, data))
 		user.Role = data

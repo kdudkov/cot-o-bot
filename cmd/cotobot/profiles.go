@@ -12,38 +12,34 @@ import (
 )
 
 type UserManager struct {
-	logger       *slog.Logger
-	db           *gorm.DB
-	userFile     string
-	defaultScope string
+	logger   *slog.Logger
+	db       *gorm.DB
+	userFile string
 }
 
 func NewUserManager(db *gorm.DB, userFile string) *UserManager {
 	um := &UserManager{
-		logger:       slog.Default().With("logger", "UserManager"),
-		db:           db,
-		userFile:     userFile,
-		defaultScope: "test",
+		logger:   slog.Default().With("logger", "UserManager"),
+		db:       db,
+		userFile: userFile,
 	}
 
 	return um
 }
 
 func (um *UserManager) Get(id, login, name string) *database.UserInfo {
-	var u *database.UserInfo
-
-	if u = database.NewUserQuery(um.db).ID(id).One(); u == nil {
-		u = &database.UserInfo{
-			Id:       id,
-			Login:    login,
-			Callsign: name,
-			Role:     "Team Member",
-			Scope:    um.defaultScope,
-			CotType:  "a-f-G",
-		}
+	if u := database.NewUserQuery(um.db).ID(id).One(); u != nil {
+		return u
 	}
 
-	return u
+	return &database.UserInfo{
+		Id:       id,
+		Login:    login,
+		Callsign: name,
+		Role:     "Team Member",
+		Scope:    "",
+		CotType:  "a-f-G",
+	}
 }
 
 func (um *UserManager) UpdatePos(id string, login string) error {
