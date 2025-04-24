@@ -2,26 +2,24 @@ package main
 
 import (
 	"log/slog"
-	"os"
 	"time"
 
-	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 
 	"cotobot/cmd/cotobot/database"
 )
 
 type UserManager struct {
-	logger   *slog.Logger
-	db       *gorm.DB
-	userFile string
+	logger      *slog.Logger
+	db          *gorm.DB
+	defaultType string
 }
 
-func NewUserManager(db *gorm.DB, userFile string) *UserManager {
+func NewUserManager(db *gorm.DB) *UserManager {
 	um := &UserManager{
-		logger:   slog.Default().With("logger", "UserManager"),
-		db:       db,
-		userFile: userFile,
+		logger:      slog.Default().With("logger", "UserManager"),
+		db:          db,
+		defaultType: "a-f-G",
 	}
 
 	return um
@@ -38,7 +36,7 @@ func (um *UserManager) Get(id, login, name string) *database.UserInfo {
 		Callsign: name,
 		Role:     "Team Member",
 		Scope:    "",
-		CotType:  "a-f-G",
+		CotType:  um.defaultType,
 	}
 }
 
@@ -56,26 +54,6 @@ func (um *UserManager) Save(u *database.UserInfo) error {
 	return err
 }
 
-func (um *UserManager) loadUsersFile() error {
-	dat, err := os.ReadFile(um.userFile)
-
-	if err != nil {
-		return err
-	}
-
-	users := make([]*database.UserInfo, 0)
-
-	if err := yaml.Unmarshal(dat, &users); err != nil {
-		return err
-	}
-
-	for _, user := range users {
-		um.Save(user)
-	}
-
-	return nil
-}
-
 func (um *UserManager) Start() error {
 	if err := um.db.AutoMigrate(&database.UserInfo{}); err != nil {
 		return err
@@ -83,7 +61,6 @@ func (um *UserManager) Start() error {
 
 	if database.NewUserQuery(um.db).Count() == 0 {
 		um.logger.Info("db is empty - load users files")
-		return um.loadUsersFile()
 	}
 
 	return nil

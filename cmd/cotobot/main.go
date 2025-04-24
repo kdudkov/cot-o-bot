@@ -19,9 +19,6 @@ import (
 	tg "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/kdudkov/goatak/pkg/cot"
 	"github.com/kdudkov/goatak/pkg/cotproto"
-	"github.com/knadh/koanf/parsers/yaml"
-	"github.com/knadh/koanf/providers/file"
-	"github.com/knadh/koanf/v2"
 
 	"cotobot/cmd/cotobot/database"
 )
@@ -60,7 +57,7 @@ type Command struct {
 }
 
 type App struct {
-	k            *koanf.Koanf
+	config       *AppConfig
 	bot          *tg.BotAPI
 	logger       *slog.Logger
 	defaultScope string
@@ -69,19 +66,19 @@ type App struct {
 	callbacks    map[string]Cb
 }
 
-func NewApp(k *koanf.Koanf) *App {
-	db, err := database.GetDatabase("bot.sqlite", false)
+func NewApp(conf *AppConfig) *App {
+	db, err := database.GetDatabase(conf.String("database"), false)
 
 	if err != nil {
 		panic(err)
 	}
 
 	app := &App{
-		k:            k,
+		config:       conf,
 		bot:          nil,
 		logger:       slog.Default(),
 		defaultScope: "test",
-		users:        NewUserManager(db, "users.yml"),
+		users:        NewUserManager(db),
 		commands:     make(map[string]*Command),
 	}
 
@@ -94,10 +91,10 @@ func NewApp(k *koanf.Koanf) *App {
 }
 
 func (app *App) GetUpdatesChannel() (tg.UpdatesChannel, error) {
-	if webhook := app.k.String("webhook.ext"); webhook != "" {
-		app.logger.Info(fmt.Sprintf("start listener on %s, path %s", app.k.String("webhook.listen"), app.k.String("webhook.path")))
+	if webhook := app.config.String("webhook.ext"); webhook != "" {
+		app.logger.Info(fmt.Sprintf("start listener on %s, path %s", app.config.String("webhook.listen"), app.config.String("webhook.path")))
 		go func() {
-			if err := http.ListenAndServe(app.k.String("webhook.listen"), nil); err != nil {
+			if err := http.ListenAndServe(app.config.String("webhook.listen"), nil); err != nil {
 				panic(err)
 			}
 		}()
@@ -123,7 +120,7 @@ func (app *App) GetUpdatesChannel() (tg.UpdatesChannel, error) {
 		//	return nil, fmt.Errorf(info.LastErrorMessage)
 		//}
 
-		return app.bot.ListenForWebhook(app.k.String("webhook.path")), nil
+		return app.bot.ListenForWebhook(app.config.String("webhook.path")), nil
 	}
 
 	app.logger.Info("start polling")
@@ -186,7 +183,7 @@ func (app *App) initCommands() error {
 func (app *App) Run() {
 	var err error
 
-	app.bot, err = tg.NewBotAPI(app.k.String("token"))
+	app.bot, err = tg.NewBotAPI(app.config.String("token"))
 
 	if err != nil || app.bot == nil {
 		panic("can't start bot " + err.Error())
@@ -289,10 +286,10 @@ func (app *App) Process(update tg.Update) {
 		loc := message.Location
 		logger.Info(fmt.Sprintf("location: %f %f %f", loc.Latitude, loc.Longitude, loc.HorizontalAccuracy))
 		app.users.UpdatePos(user.Id, getLogin(message.From))
-		if app.k.String("cot.server") != "" {
+		if app.config.String("cot.server") != "" {
 			app.sendCotMessage(app.makeCot(
 				user,
-				app.k.Duration("cot.stale"),
+				app.config.Duration("cot.stale"),
 				loc.Latitude,
 				loc.Longitude,
 				loc.HorizontalAccuracy,
@@ -358,11 +355,11 @@ func (app *App) makeCot(user *database.UserInfo, d time.Duration, lat, lon, acc,
 }
 
 func (app *App) sendCotMessage(msg *cot.CotMessage) {
-	if app.k.String("cot.server") == "" {
+	if app.config.String("cot.server") == "" {
 		return
 	}
 
-	if app.k.String("cot.proto") == "http" {
+	if app.config.String("cot.proto") == "http" {
 		if err := app.sendHttp(msg); err != nil {
 			app.logger.Error("http send error", "error", err.Error())
 		}
@@ -384,7 +381,7 @@ func (app *App) sendTcp(msg *cot.CotMessage) {
 	fulldata[1] = 1
 	fulldata[2] = magicByte
 
-	conn, err := net.Dial(app.k.String("cot.proto"), app.k.String("cot.server"))
+	conn, err := net.Dial(app.config.String("cot.proto"), app.config.String("cot.server"))
 	if err != nil {
 		app.logger.Error("connection error", "error", err)
 		return
@@ -408,7 +405,7 @@ func (app *App) sendHttp(msg *cot.CotMessage) error {
 		return err
 	}
 
-	_, err = cl.Post(app.k.String("cot.server"), "application/json", bytes.NewReader(data))
+	_, err = cl.Post(app.config.String("cot.server"), "application/json", bytes.NewReader(data))
 	return err
 }
 
@@ -436,20 +433,14 @@ func getLogin(u *tg.User) string {
 }
 
 func main() {
-	k := koanf.New(".")
-
-	k.Set("cot.proto", "tcp")
-	k.Set("cot.stale", time.Minute*10)
-
-	if err := k.Load(file.Provider("cotobot.yml"), yaml.Parser()); err != nil {
-		fmt.Printf("error loading config: %s", err.Error())
-		return
-	}
+	conf := NewAppConfig()
+	conf.Load("cotobot.yml")
+	_ = conf.LoadEnv("BOT_")
 
 	h := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
 	slog.SetDefault(slog.New(h))
 
 	slog.Default().Info("starting app version " + getVersion())
 
-	NewApp(k).Run()
+	NewApp(conf).Run()
 }
