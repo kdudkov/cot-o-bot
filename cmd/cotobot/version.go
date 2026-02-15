@@ -2,17 +2,16 @@ package main
 
 import "fmt"
 
-const unknown = "unknown"
-
 var (
-	gitRevision = unknown
-	gitBranch   = unknown
+	version = "unknown"
+	commit  = ""
+	date    = ""
 )
 
 func getVersion() string {
-	if gitBranch != "master" && gitBranch != unknown {
-		return fmt.Sprintf("%s:%s", gitBranch, gitRevision)
-	}
+	return version
+}
 
-	return gitRevision
+func getVersionFull() string {
+	return fmt.Sprintf("version: %s, commit: %s, built at: %s", version, commit, date)
 }

@@ -3,10 +3,11 @@ default: all
 .PHONY: all
 all: dep test build
 
-GIT_REVISION=$(shell git describe --always --dirty)
-GIT_BRANCH=$(shell git rev-parse --symbolic-full-name --abbrev-ref HEAD)
+GIT_VERSION=$(shell git describe --always --tags --dirty)
+GIT_COMMIT=$(shell git rev-parse HEAD)
+GIT_DATE=$(shell date +'%d.%m.%y %H:%M')
 
-LDFLAGS=-ldflags "-s -X main.gitRevision=$(GIT_REVISION) -X main.gitBranch=$(GIT_BRANCH)"
+LDFLAGS=-ldflags "-s -X main.version=$(GIT_VERSION) -X main.commit=$(GIT_COMMIT) -X 'main.date=$(GIT_DATE)'"
 
 .PHONY: clean
 clean:
