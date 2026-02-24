@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -13,7 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kdudkov/goatak/pkg/util"
 	"google.golang.org/protobuf/proto"
 
 	tg "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -332,7 +332,7 @@ func (app *App) request(msg tg.Chattable) error {
 }
 
 func (app *App) makeCot(user *database.UserInfo, d time.Duration, lat, lon, acc, heading float64) *cot.CotMessage {
-	scope := util.FirstString(user.Scope, app.defaultScope)
+	scope := cmp.Or(user.Scope, app.defaultScope)
 
 	evt := cot.BasicMsg(user.CotType, "tg-"+user.Id, d)
 	evt.CotEvent.How = "a-g"
